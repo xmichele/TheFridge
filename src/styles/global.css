@@ -787,6 +787,28 @@ label > span {
 }
 
 @media (max-width: 719px) {
+  .primary-nav {
+    flex-wrap: nowrap;
+    gap: 0.6rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.65rem;
+    border-radius: 1.4rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .primary-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 42px;
+    padding: 0.7rem 0.95rem;
+  }
+
   .panel,
   .empty-state,
   .loading-card,
@@ -868,6 +890,19 @@ label > span {
 
   .modal-card .section-heading {
     align-items: start;
+  }
+
+  .archive-pagination {
+    gap: 0.75rem;
+  }
+
+  .archive-pagination .inline-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .archive-pagination .inline-actions .button {
+    flex: 1 1 0;
   }
 }
 

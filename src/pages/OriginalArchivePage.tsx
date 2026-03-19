@@ -264,6 +264,36 @@ export default function OriginalArchivePage() {
     () => filteredEntries.slice((page - 1) * pageSize, page * pageSize),
     [filteredEntries, page, pageSize],
   );
+  const shouldShowPagination = !loading && !error && filteredEntries.length > pageSize;
+
+  function renderPaginationControls(position: 'top' | 'bottom') {
+    if (!shouldShowPagination) {
+      return null;
+    }
+
+    return (
+      <div className={`section-heading archive-pagination archive-pagination-${position}`}>
+        <div>
+          <p>
+            Pagina {page} di {pageCount}
+          </p>
+        </div>
+        <div className="inline-actions">
+          <button type="button" className="button button-secondary" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+            Precedente
+          </button>
+          <button
+            type="button"
+            className="button button-secondary"
+            disabled={page >= pageCount}
+            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+          >
+            Successiva
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="stack-lg">
@@ -420,6 +450,7 @@ export default function OriginalArchivePage() {
             description="Prova con un altro termine oppure rimuovi il filtro categoria."
           />
         ) : null}
+        {renderPaginationControls('top')}
         {!loading && !error && filteredEntries.length > 0 ? (
           <div className="archive-card-grid">
             {paginatedEntries.map((entry) => {
@@ -500,28 +531,7 @@ export default function OriginalArchivePage() {
             })}
           </div>
         ) : null}
-        {!loading && !error && filteredEntries.length > pageSize ? (
-          <div className="section-heading">
-            <div>
-              <p>
-                Pagina {page} di {pageCount}
-              </p>
-            </div>
-            <div className="inline-actions">
-              <button type="button" className="button button-secondary" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                Precedente
-              </button>
-              <button
-                type="button"
-                className="button button-secondary"
-                disabled={page >= pageCount}
-                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-              >
-                Successiva
-              </button>
-            </div>
-          </div>
-        ) : null}
+        {renderPaginationControls('bottom')}
       </section>
 
       {selectedEntry ? <OriginalRecipeInfoModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} /> : null}
