@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { loadOriginalRecipeSupportDataset } from '@/data/services/originalRecipeSupportService';
 import {
+  buildVisibleNutritionMetricBadges,
   buildOriginalRecipeSupportMetadata,
   buildOriginalRecipeVisibleIngredients,
   getOriginalRecipePreviewText,
@@ -407,9 +408,6 @@ export default function OriginalArchivePage() {
                 ? 'Caricamento archivio in corso.'
                 : `${filteredEntries.length} ricette nel supporto archivio su ${dataset?.entryCount ?? 0} caricate.`}
             </p>
-            {!loading && dataset?.sourceRecordCount ? (
-              <p>Fonte originale: {dataset.sourceRecordCount} record originali. Il supporto corrente mostra ricette strutturate e deduplicate.</p>
-            ) : null}
           </div>
           {dataset ? <StatusBadge>{new Date(dataset.generatedAt).toLocaleDateString('it-IT')}</StatusBadge> : null}
         </div>
@@ -427,6 +425,7 @@ export default function OriginalArchivePage() {
             {paginatedEntries.map((entry) => {
               const metadata = buildOriginalRecipeSupportMetadata(entry);
               const visibleIngredients = buildOriginalRecipeVisibleIngredients(entry, 6);
+              const visibleNutritionBadges = buildVisibleNutritionMetricBadges(metadata.nutritionSignals);
               const quickNote = getOriginalRecipeQuickNote(entry);
 
               return (
@@ -461,38 +460,17 @@ export default function OriginalArchivePage() {
                     {metadata.cookMinutes ? <StatusBadge tone="neutral">🍳 {metadata.cookMinutes} min</StatusBadge> : null}
                     {metadata.nutritionSignals ? (
                       <>
-                        <NutritionMetricBadge
-                          metricLabel="Calorie"
-                          qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.calories}
-                          value={metadata.nutritionSignals.quantitativeEstimate?.macros.calories}
-                          unit="kcal"
-                          basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                          metricSource={metadata.nutritionSignals.metricSources.calories}
-                        />
-                        <NutritionMetricBadge
-                          metricLabel="Carbo"
-                          qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.carbs}
-                          value={metadata.nutritionSignals.quantitativeEstimate?.macros.carbs}
-                          unit="g"
-                          basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                          metricSource={metadata.nutritionSignals.metricSources.carbs}
-                        />
-                        <NutritionMetricBadge
-                          metricLabel="Proteine"
-                          qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.protein}
-                          value={metadata.nutritionSignals.quantitativeEstimate?.macros.protein}
-                          unit="g"
-                          basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                          metricSource={metadata.nutritionSignals.metricSources.protein}
-                        />
-                        <NutritionMetricBadge
-                          metricLabel="Grassi"
-                          qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.fat}
-                          value={metadata.nutritionSignals.quantitativeEstimate?.macros.fat}
-                          unit="g"
-                          basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                          metricSource={metadata.nutritionSignals.metricSources.fat}
-                        />
+                        {visibleNutritionBadges.map((badge) => (
+                          <NutritionMetricBadge
+                            key={`${entry.id}-${badge.key}`}
+                            metricLabel={badge.metricLabel}
+                            qualitativeLabel={badge.qualitativeLabel}
+                            value={badge.value}
+                            unit={badge.unit}
+                            basisLabel={metadata.nutritionSignals?.quantitativeEstimate?.basisLabel}
+                            metricSource={metadata.nutritionSignals?.metricSources[badge.key]}
+                          />
+                        ))}
                         {metadata.nutritionSignals.stickers.map((sticker) => (
                           <NutritionStickerBadge
                             key={`${entry.id}-${sticker}`}

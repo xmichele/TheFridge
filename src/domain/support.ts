@@ -1,5 +1,10 @@
 import type { PantryItem } from '@/domain/models';
-import { estimateNutritionSignalsFromIngredientNames, resolveNutritionReferenceByName, type NutritionSignals } from '@/domain/nutrition';
+import {
+  estimateNutritionSignalsFromIngredientNames,
+  resolveNutritionReferenceByName,
+  type NutritionMetricKey,
+  type NutritionSignals,
+} from '@/domain/nutrition';
 
 export interface OriginalRecipeIngredientLine {
   displayName: string;
@@ -51,6 +56,14 @@ export interface OriginalRecipeSupportMetadata {
   originPlaces: string[];
   nutritionSignals: NutritionSignals | null;
   searchProfiles: OriginalRecipeSearchProfile[];
+}
+
+export interface VisibleNutritionMetricBadge {
+  key: NutritionMetricKey;
+  metricLabel: string;
+  qualitativeLabel: NutritionSignals['qualitativeLabels'][NutritionMetricKey];
+  value?: number;
+  unit: 'kcal' | 'g';
 }
 
 export type OriginalRecipeSearchProfile =
@@ -279,6 +292,47 @@ export function getOriginalRecipeQuickNote(entry: OriginalRecipeSupportEntry | O
   }
 
   return cleaned.length <= 140 ? cleaned : `${cleaned.slice(0, 137).trimEnd()}...`;
+}
+
+export function buildVisibleNutritionMetricBadges(
+  nutritionSignals: NutritionSignals | null,
+): VisibleNutritionMetricBadge[] {
+  if (!nutritionSignals) {
+    return [];
+  }
+
+  const metricBadges: VisibleNutritionMetricBadge[] = [
+    {
+      key: 'calories',
+      metricLabel: 'Calorie',
+      qualitativeLabel: nutritionSignals.qualitativeLabels.calories,
+      value: nutritionSignals.quantitativeEstimate?.macros.calories,
+      unit: 'kcal',
+    },
+    {
+      key: 'carbs',
+      metricLabel: 'Carbo',
+      qualitativeLabel: nutritionSignals.qualitativeLabels.carbs,
+      value: nutritionSignals.quantitativeEstimate?.macros.carbs,
+      unit: 'g',
+    },
+    {
+      key: 'protein',
+      metricLabel: 'Proteine',
+      qualitativeLabel: nutritionSignals.qualitativeLabels.protein,
+      value: nutritionSignals.quantitativeEstimate?.macros.protein,
+      unit: 'g',
+    },
+    {
+      key: 'fat',
+      metricLabel: 'Grassi',
+      qualitativeLabel: nutritionSignals.qualitativeLabels.fat,
+      value: nutritionSignals.quantitativeEstimate?.macros.fat,
+      unit: 'g',
+    },
+  ];
+
+  return metricBadges.filter((badge) => badge.qualitativeLabel.label !== 'medio');
 }
 
 export function buildOriginalRecipeSupportMetadata(

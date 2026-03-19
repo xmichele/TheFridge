@@ -6,6 +6,7 @@ import { SpeechPlaybackButton } from '@/components/ui/SpeechPlaybackButton';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { loadOriginalRecipeSupportDetail } from '@/data/services/originalRecipeSupportService';
 import {
+  buildVisibleNutritionMetricBadges,
   buildOriginalRecipeSupportMetadata,
   type OriginalRecipeSupportDetailEntry,
   type OriginalRecipeSupportEntry,
@@ -48,6 +49,7 @@ export function OriginalRecipeInfoModal({ entry, onClose }: OriginalRecipeInfoMo
 
   const resolvedEntry = detail ?? entry;
   const metadata = buildOriginalRecipeSupportMetadata(resolvedEntry);
+  const visibleNutritionBadges = buildVisibleNutritionMetricBadges(metadata.nutritionSignals);
   const originalIngredients = detail ? detail.ingredients : entry.ingredientPreview;
 
   return (
@@ -73,38 +75,17 @@ export function OriginalRecipeInfoModal({ entry, onClose }: OriginalRecipeInfoMo
           ))}
           {metadata.nutritionSignals ? (
             <>
-              <NutritionMetricBadge
-                metricLabel="Calorie"
-                qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.calories}
-                value={metadata.nutritionSignals.quantitativeEstimate?.macros.calories}
-                unit="kcal"
-                basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                metricSource={metadata.nutritionSignals.metricSources.calories}
-              />
-              <NutritionMetricBadge
-                metricLabel="Carbo"
-                qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.carbs}
-                value={metadata.nutritionSignals.quantitativeEstimate?.macros.carbs}
-                unit="g"
-                basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                metricSource={metadata.nutritionSignals.metricSources.carbs}
-              />
-              <NutritionMetricBadge
-                metricLabel="Proteine"
-                qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.protein}
-                value={metadata.nutritionSignals.quantitativeEstimate?.macros.protein}
-                unit="g"
-                basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                metricSource={metadata.nutritionSignals.metricSources.protein}
-              />
-              <NutritionMetricBadge
-                metricLabel="Grassi"
-                qualitativeLabel={metadata.nutritionSignals.qualitativeLabels.fat}
-                value={metadata.nutritionSignals.quantitativeEstimate?.macros.fat}
-                unit="g"
-                basisLabel={metadata.nutritionSignals.quantitativeEstimate?.basisLabel}
-                metricSource={metadata.nutritionSignals.metricSources.fat}
-              />
+              {visibleNutritionBadges.map((badge) => (
+                <NutritionMetricBadge
+                  key={`${entry.id}-${badge.key}`}
+                  metricLabel={badge.metricLabel}
+                  qualitativeLabel={badge.qualitativeLabel}
+                  value={badge.value}
+                  unit={badge.unit}
+                  basisLabel={metadata.nutritionSignals?.quantitativeEstimate?.basisLabel}
+                  metricSource={metadata.nutritionSignals?.metricSources[badge.key]}
+                />
+              ))}
               {metadata.nutritionSignals.stickers.map((sticker) => (
                 <NutritionStickerBadge
                   key={`${entry.id}-${sticker}`}

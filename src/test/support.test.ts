@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildVisibleNutritionMetricBadges,
   buildOriginalRecipeSuggestions,
   buildOriginalRecipeSupportMetadata,
   getOriginalRecipeSearchProfiles,
 } from '@/domain/support';
 import type { PantryItem } from '@/domain/models';
+import type { NutritionSignals } from '@/domain/nutrition';
 
 describe('buildOriginalRecipeSuggestions', () => {
   it('prioritizes support recipes that match the pantry', () => {
@@ -194,5 +196,30 @@ describe('getOriginalRecipeSearchProfiles', () => {
     };
 
     expect(buildOriginalRecipeSupportMetadata(recipe).nutritionSignals).not.toBeNull();
+  });
+
+  it('hides neutral archive nutrition badges labelled medio from the UI helper', () => {
+    const nutritionSignals: NutritionSignals = {
+      qualitativeLabels: {
+        calories: { label: 'medio', tone: 'neutral' },
+        carbs: { label: 'alto', tone: 'warn' },
+        protein: { label: 'medio', tone: 'neutral' },
+        fat: { label: 'leggero', tone: 'success' },
+      },
+      editorialLabels: [],
+      stickers: ['ricca di fibre'],
+      metricSources: {
+        calories: null,
+        carbs: null,
+        protein: null,
+        fat: null,
+      },
+      stickerSources: {},
+    };
+
+    const visibleBadges = buildVisibleNutritionMetricBadges(nutritionSignals);
+
+    expect(visibleBadges.map((badge) => badge.key)).toEqual(['carbs', 'fat']);
+    expect(visibleBadges.some((badge) => badge.qualitativeLabel.label === 'medio')).toBe(false);
   });
 });
