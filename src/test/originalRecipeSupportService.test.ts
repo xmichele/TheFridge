@@ -4,6 +4,7 @@ import {
   decodeOriginalRecipeSupportDatasetResponse,
   decodeOriginalRecipeSupportDetailChunkResponse,
   decodeOriginalRecipeSupportLookupResponse,
+  getOriginalRecipeSupportAssetUrl,
 } from '@/data/services/originalRecipeSupportService';
 
 describe('originalRecipeSupportService decoders', () => {
@@ -105,5 +106,11 @@ describe('originalRecipeSupportService decoders', () => {
       detailChunk: 'primo',
       servingsText: '4',
     });
+  });
+
+  it('builds support asset URLs from the configured base path', () => {
+    expect(getOriginalRecipeSupportAssetUrl('support/original-recipes-support.json')).toBe(
+      `${import.meta.env.BASE_URL}support/original-recipes-support.json`,
+    );
   });
 });

@@ -75,6 +75,18 @@ interface PackedLookupDatasetResponse {
   entries: Array<OriginalRecipeSupportLookupEntry | PackedLookupEntry>;
 }
 
+function getPublicAssetBaseUrl() {
+  const baseUrl = import.meta.env.BASE_URL || '/';
+
+  return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+}
+
+export function getOriginalRecipeSupportAssetUrl(relativePath: string) {
+  const normalizedPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+
+  return `${getPublicAssetBaseUrl()}${normalizedPath}`;
+}
+
 function decodeIngredientLine(line: OriginalRecipeIngredientLine | PackedIngredientLine): OriginalRecipeIngredientLine {
   if (!Array.isArray(line)) {
     return line;
@@ -215,7 +227,7 @@ export function decodeOriginalRecipeSupportLookupResponse(
 
 export function loadOriginalRecipeSupportDataset(): Promise<OriginalRecipeSupportDataset> {
   if (!supportDatasetPromise) {
-    supportDatasetPromise = fetch('/support/original-recipes-support.json').then(async (response) => {
+    supportDatasetPromise = fetch(getOriginalRecipeSupportAssetUrl('support/original-recipes-support.json')).then(async (response) => {
       if (!response.ok) {
         throw new Error('Impossibile caricare l archivio ricette originale.');
       }
@@ -231,7 +243,7 @@ export function loadOriginalRecipeSupportDataset(): Promise<OriginalRecipeSuppor
 
 export function loadOriginalRecipeSupportLookup(): Promise<OriginalRecipeSupportLookupDataset> {
   if (!supportLookupPromise) {
-    supportLookupPromise = fetch('/support/original-recipes-lookup.json').then(async (response) => {
+    supportLookupPromise = fetch(getOriginalRecipeSupportAssetUrl('support/original-recipes-lookup.json')).then(async (response) => {
       if (!response.ok) {
         throw new Error('Impossibile caricare l indice ricette originale.');
       }
@@ -252,7 +264,7 @@ export async function loadOriginalRecipeSupportDetail(
   if (!detailChunkPromises.has(chunkKey)) {
     detailChunkPromises.set(
       chunkKey,
-      fetch(`/support/original-recipes-details/${chunkKey}.json`).then(async (response) => {
+      fetch(getOriginalRecipeSupportAssetUrl(`support/original-recipes-details/${chunkKey}.json`)).then(async (response) => {
         if (!response.ok) {
           throw new Error('Impossibile caricare il dettaglio ricetta originale.');
         }
@@ -279,7 +291,7 @@ export async function loadOriginalRecipeSupportDetailByLookup(
   if (!detailChunkPromises.has(entry.detailChunk)) {
     detailChunkPromises.set(
       entry.detailChunk,
-      fetch(`/support/original-recipes-details/${entry.detailChunk}.json`).then(async (response) => {
+      fetch(getOriginalRecipeSupportAssetUrl(`support/original-recipes-details/${entry.detailChunk}.json`)).then(async (response) => {
         if (!response.ok) {
           throw new Error('Impossibile caricare il dettaglio ricetta originale.');
         }
