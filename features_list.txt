@@ -1,0 +1,5 @@
+TheFridge deve avere le seguenti funzionalità:
+
+-L' utente ha la facoltà di registrarsi ed inserire le ricette della sua dieta
+-La app esegue accumula e somma gli alimenti basici in una "credenza" virtuale
+-L'utente consuma pasti ogni giorno ed al contempo la app aggiorna la credenza.
