@@ -114,6 +114,8 @@ tools/*/*.i.tmp
 /tools/clang-format/node_modules
 /tools/eslint/node_modules
 /tools/lint-md/node_modules
+/dist
+/dev-dist
 
 # === Rules for test artifacts ===
 /*.tap
