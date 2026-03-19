@@ -67,17 +67,20 @@ interface PlannerIngredientBadgeProps {
 
 interface PlannerRecipeNutritionHoverProps {
   title: string;
-  source: MealPlanSource;
-  personalRecipeId?: string;
-  originalRecipeId?: string;
-  personalRecipeServings?: number;
-  originalDetail?: OriginalRecipeSupportDetailEntry | null;
-  originalLookup?: OriginalRecipeSupportLookupDataset | null;
+  badges: PlannerNutritionHoverBadge[];
 }
 
 interface PlannerNutritionHoverBadge {
   text: string;
   tone: 'neutral' | 'warn' | 'danger' | 'success';
+}
+
+interface PlannerRecipeSuggestion {
+  id: string;
+  title: string;
+  servings: number;
+  source: MealPlanSource;
+  normalizedTitle: string;
 }
 
 function PlannerIngredientBadge({ ingredient }: PlannerIngredientBadgeProps) {
@@ -116,55 +119,10 @@ function PlannerIngredientBadge({ ingredient }: PlannerIngredientBadgeProps) {
 
 function PlannerRecipeNutritionHover({
   title,
-  source,
-  personalRecipeId,
-  originalRecipeId,
-  personalRecipeServings,
-  originalDetail,
-  originalLookup,
+  badges,
 }: PlannerRecipeNutritionHoverProps) {
   const [open, setOpen] = useState(false);
   const detailId = useId();
-  const data = useLiveQuery(async () => {
-    if (source === 'personal') {
-      if (!personalRecipeId) {
-        return null;
-      }
-
-      const recipe = await recipeRepository.get(personalRecipeId);
-      if (!recipe) {
-        return null;
-      }
-
-      const nutrition = analyzeRecipeNutrition(recipe, personalRecipeServings ?? recipe.servings);
-      const badges: PlannerNutritionHoverBadge[] = [
-        { text: `Kcal ${nutrition.qualitativeLabels.calories.label}`, tone: nutrition.qualitativeLabels.calories.tone },
-        { text: `Carbo ${nutrition.qualitativeLabels.carbs.label}`, tone: nutrition.qualitativeLabels.carbs.tone },
-        { text: `Prot ${nutrition.qualitativeLabels.protein.label}`, tone: nutrition.qualitativeLabels.protein.tone },
-        { text: `Grassi ${nutrition.qualitativeLabels.fat.label}`, tone: nutrition.qualitativeLabels.fat.tone },
-      ];
-
-      return badges.filter((badge) => !badge.text.endsWith(' medio'));
-    }
-
-    let resolvedOriginalDetail = originalDetail ?? null;
-    if (!resolvedOriginalDetail && originalRecipeId && originalLookup) {
-      const lookupEntry = originalLookup.entries.find((entry) => entry.id === originalRecipeId);
-      if (lookupEntry) {
-        resolvedOriginalDetail = await loadOriginalRecipeSupportDetailByLookup(lookupEntry).catch(() => null);
-      }
-    }
-
-    const metadata = resolvedOriginalDetail ? buildOriginalRecipeSupportMetadata(resolvedOriginalDetail) : null;
-    const badges = buildVisibleNutritionMetricBadges(metadata?.nutritionSignals ?? null).map((badge) => ({
-      text: `${badge.metricLabel} ${badge.qualitativeLabel.label}`,
-      tone: badge.qualitativeLabel.tone,
-    }));
-
-    return badges;
-  }, [source, personalRecipeId, personalRecipeServings, originalDetail, originalRecipeId, originalLookup], null);
-
-  const badges = data ?? [];
   const hasDetail = badges.length > 0;
 
   return (
@@ -201,6 +159,67 @@ function PlannerRecipeNutritionHover({
 function formatScaledQuantity(quantity: number, unitLabel: string) {
   const rounded = quantity >= 10 ? Math.round(quantity * 10) / 10 : Math.round(quantity * 100) / 100;
   return `${rounded} ${unitLabel}`;
+}
+
+function buildPersonalPlannerNutritionHoverBadges(
+  recipe: { servings: number } & Parameters<typeof analyzeRecipeNutrition>[0],
+): PlannerNutritionHoverBadge[] {
+  const nutrition = analyzeRecipeNutrition(recipe, recipe.servings);
+  const energyLabel =
+    nutrition.qualitativeLabels.calories.label === nutrition.qualitativeLabels.carbs.label
+      ? nutrition.qualitativeLabels.calories.label
+      : `${nutrition.qualitativeLabels.calories.label}/${nutrition.qualitativeLabels.carbs.label}`;
+  const energyTone =
+    nutrition.qualitativeLabels.calories.tone === 'danger' || nutrition.qualitativeLabels.carbs.tone === 'danger'
+      ? 'danger'
+      : nutrition.qualitativeLabels.calories.tone === 'warn' || nutrition.qualitativeLabels.carbs.tone === 'warn'
+        ? 'warn'
+        : nutrition.qualitativeLabels.calories.tone === 'success' && nutrition.qualitativeLabels.carbs.tone === 'success'
+          ? 'success'
+          : 'neutral';
+
+  return [
+    { text: `Carbo-kcal ${energyLabel}`, tone: energyTone as PlannerNutritionHoverBadge['tone'] },
+    { text: `Prot ${nutrition.qualitativeLabels.protein.label}`, tone: nutrition.qualitativeLabels.protein.tone },
+    { text: `Grassi ${nutrition.qualitativeLabels.fat.label}`, tone: nutrition.qualitativeLabels.fat.tone },
+  ].filter((badge) => !badge.text.endsWith(' medio'));
+}
+
+function buildOriginalPlannerNutritionHoverBadges(detail: OriginalRecipeSupportDetailEntry | null | undefined): PlannerNutritionHoverBadge[] {
+  const metadata = detail ? buildOriginalRecipeSupportMetadata(detail) : null;
+  const visibleBadges = buildVisibleNutritionMetricBadges(metadata?.nutritionSignals ?? null);
+  const caloriesBadge = visibleBadges.find((badge) => badge.key === 'calories');
+  const carbsBadge = visibleBadges.find((badge) => badge.key === 'carbs');
+  const restBadges = visibleBadges.filter((badge) => badge.key !== 'calories' && badge.key !== 'carbs');
+  const badges: PlannerNutritionHoverBadge[] = [];
+
+  if (caloriesBadge || carbsBadge) {
+    const energyLabel =
+      caloriesBadge && carbsBadge
+        ? caloriesBadge.qualitativeLabel.label === carbsBadge.qualitativeLabel.label
+          ? caloriesBadge.qualitativeLabel.label
+          : `${caloriesBadge.qualitativeLabel.label}/${carbsBadge.qualitativeLabel.label}`
+        : caloriesBadge?.qualitativeLabel.label ?? carbsBadge?.qualitativeLabel.label ?? '';
+    const energyTone =
+      caloriesBadge?.qualitativeLabel.tone === 'danger' || carbsBadge?.qualitativeLabel.tone === 'danger'
+        ? 'danger'
+        : caloriesBadge?.qualitativeLabel.tone === 'warn' || carbsBadge?.qualitativeLabel.tone === 'warn'
+          ? 'warn'
+          : caloriesBadge?.qualitativeLabel.tone === 'success' && carbsBadge?.qualitativeLabel.tone === 'success'
+            ? 'success'
+            : 'neutral';
+
+    badges.push({ text: `Carbo-kcal ${energyLabel}`, tone: energyTone as PlannerNutritionHoverBadge['tone'] });
+  }
+
+  badges.push(
+    ...restBadges.map((badge) => ({
+      text: `${badge.metricLabel} ${badge.qualitativeLabel.label}`,
+      tone: badge.qualitativeLabel.tone,
+    })),
+  );
+
+  return badges;
 }
 
 interface PlannerFormState {
@@ -392,54 +411,71 @@ export default function PlannerPage() {
   );
   const recipeTitleSuggestions = useMemo(() => {
     const query = normalizeIngredientName(settledRecipeTitle);
-    if (!query) {
-      return personalRecipeIndex.slice(0, 8).map(({ id, title, servings, source }) => ({
-        id,
-        title,
-        servings,
-        source,
-      }));
-    }
+    const personalMatches: PlannerRecipeSuggestion[] = (query
+      ? personalRecipeIndex.filter((recipe) => recipe.normalizedTitle.includes(query) || recipe.normalizedId.includes(query)).slice(0, 6)
+      : personalRecipeIndex.slice(0, 8)
+    ).map(({ id, title, servings, source, normalizedTitle }) => ({
+      id,
+      title,
+      servings,
+      source,
+      normalizedTitle,
+    }));
 
-    const personalMatches = personalRecipeIndex
-      .filter((recipe) => recipe.normalizedTitle.includes(query) || recipe.normalizedId.includes(query))
-      .slice(0, 6)
-      .map((recipe) => ({
-        id: recipe.id,
-        title: recipe.title,
-        servings: recipe.servings,
-        source: recipe.source,
-      }));
-
-    const originalMatches =
+    const originalMatches: PlannerRecipeSuggestion[] =
       query.length >= 3
         ? originalRecipeIndex
             .filter((entry) => entry.normalizedTitle.includes(query) || entry.normalizedId.includes(query))
             .slice(0, 5)
-            .map((entry) => ({
-              id: entry.id,
-              title: entry.title,
-              servings: entry.servings,
-              source: entry.source,
+            .map(({ id, title, servings, source, normalizedTitle }) => ({
+              id,
+              title,
+              servings,
+              source,
+              normalizedTitle,
             }))
         : [];
 
-    return [...personalMatches, ...originalMatches];
+    const deduped = new Map<string, PlannerRecipeSuggestion>();
+    [...personalMatches, ...originalMatches].forEach((entry) => {
+      if (!deduped.has(entry.normalizedTitle)) {
+        deduped.set(entry.normalizedTitle, entry);
+      }
+    });
+
+    return [...deduped.values()];
   }, [originalRecipeIndex, personalRecipeIndex, settledRecipeTitle]);
 
   const firstRecipe = data?.recipes[0];
-  const selectedWeekPlans = (data?.mealPlans ?? []).filter((plan) => weekDays.includes(plan.date));
+  const selectedWeekPlans = useMemo(
+    () => (data?.mealPlans ?? []).filter((plan) => weekDays.includes(plan.date)),
+    [data?.mealPlans, weekDays],
+  );
+  const selectedWeekOriginalPlanIdsKey = useMemo(
+    () =>
+      selectedWeekPlans
+        .filter((plan) => plan.recipeSource === 'original')
+        .map((plan) => plan.recipeId)
+        .sort()
+        .join('|'),
+    [selectedWeekPlans],
+  );
 
   useEffect(() => {
     const originalPlans = selectedWeekPlans.filter((plan) => plan.recipeSource === 'original');
     if (!originalLookup || originalPlans.length === 0) {
-      setOriginalPlanDetails({});
+      setOriginalPlanDetails((current) => (Object.keys(current).length === 0 ? current : {}));
+      return;
+    }
+
+    const missingOriginalPlans = originalPlans.filter((plan) => !originalPlanDetails[plan.recipeId]);
+    if (missingOriginalPlans.length === 0) {
       return;
     }
 
     let active = true;
     Promise.all(
-      originalPlans.map(async (plan) => {
+      missingOriginalPlans.map(async (plan) => {
         const entry = originalLookup.entries.find((item) => item.id === plan.recipeId);
         if (!entry) {
           return null;
@@ -457,17 +493,66 @@ export default function PlannerPage() {
         return;
       }
 
-      setOriginalPlanDetails(
-        Object.fromEntries(
-          pairs.filter((pair): pair is readonly [string, OriginalRecipeSupportDetailEntry] => Boolean(pair)),
-        ),
+      const nextEntries = Object.fromEntries(
+        pairs.filter((pair): pair is readonly [string, OriginalRecipeSupportDetailEntry] => Boolean(pair)),
       );
+      if (Object.keys(nextEntries).length === 0) {
+        return;
+      }
+
+      setOriginalPlanDetails((current) => ({ ...current, ...nextEntries }));
     });
 
     return () => {
       active = false;
     };
-  }, [originalLookup, selectedWeekPlans]);
+  }, [originalLookup, originalPlanDetails, selectedWeekOriginalPlanIdsKey, selectedWeekPlans]);
+
+  useEffect(() => {
+    const visibleOriginalSuggestions = recipeTitleSuggestions.filter((recipe) => recipe.source === 'original');
+    if (!originalLookup || visibleOriginalSuggestions.length === 0) {
+      return;
+    }
+
+    const missingSuggestions = visibleOriginalSuggestions.filter((recipe) => !originalPlanDetails[recipe.id]);
+    if (missingSuggestions.length === 0) {
+      return;
+    }
+
+    let active = true;
+    Promise.all(
+      missingSuggestions.map(async (recipe) => {
+        const entry = originalLookup.entries.find((item) => item.id === recipe.id);
+        if (!entry) {
+          return null;
+        }
+
+        try {
+          const detail = await loadOriginalRecipeSupportDetailByLookup(entry);
+          return [recipe.id, detail] as const;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((pairs) => {
+      if (!active) {
+        return;
+      }
+
+      const nextEntries = Object.fromEntries(
+        pairs.filter((pair): pair is readonly [string, OriginalRecipeSupportDetailEntry] => Boolean(pair)),
+      );
+      if (Object.keys(nextEntries).length === 0) {
+        return;
+      }
+
+      setOriginalPlanDetails((current) => ({ ...current, ...nextEntries }));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [originalLookup, originalPlanDetails, recipeTitleSuggestions]);
 
   const selectedWeekIngredients = useMemo<PlannerIngredientAggregate[]>(() => {
     const aggregateMap = new Map<string, PlannerIngredientAggregate>();
@@ -532,6 +617,28 @@ export default function PlannerPage() {
 
     return Array.from(aggregateMap.values()).sort((left, right) => left.displayName.localeCompare(right.displayName, 'it'));
   }, [originalPlanDetails, recipeCatalog, selectedWeekPlans]);
+
+  const visiblePersonalNutritionRecipeIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...recipeTitleSuggestions.filter((recipe) => recipe.source === 'personal').map((recipe) => recipe.id),
+          ...selectedWeekPlans.filter((plan) => plan.recipeSource === 'personal').map((plan) => plan.recipeId),
+        ]),
+      ),
+    [recipeTitleSuggestions, selectedWeekPlans],
+  );
+
+  const personalPlannerNutritionBadgesById = useMemo(
+    () =>
+      new Map(
+        visiblePersonalNutritionRecipeIds
+          .map((recipeId) => recipeCatalog.find((recipe) => recipe.id === recipeId))
+          .filter((recipe): recipe is NonNullable<typeof recipeCatalog[number]> => Boolean(recipe))
+          .map((recipe) => [recipe.id, buildPersonalPlannerNutritionHoverBadges(recipe)]),
+      ),
+    [recipeCatalog, visiblePersonalNutritionRecipeIds],
+  );
 
   const plannerBudgetByDay = useMemo(
     () =>
@@ -862,12 +969,11 @@ export default function PlannerPage() {
                     >
                       <PlannerRecipeNutritionHover
                         title={recipe.title}
-                        source={recipe.source}
-                        personalRecipeId={recipe.source === 'personal' ? recipe.id : undefined}
-                        personalRecipeServings={recipe.source === 'personal' ? recipe.servings : undefined}
-                        originalRecipeId={recipe.source === 'original' ? recipe.id : undefined}
-                        originalDetail={recipe.source === 'original' ? originalPlanDetails[recipe.id] ?? null : undefined}
-                        originalLookup={recipe.source === 'original' ? originalLookup : undefined}
+                        badges={
+                          recipe.source === 'personal'
+                            ? personalPlannerNutritionBadgesById.get(recipe.id) ?? []
+                            : buildOriginalPlannerNutritionHoverBadges(originalPlanDetails[recipe.id])
+                        }
                       />
                       <span className="picker-chip-meta">{recipe.source === 'original' ? 'Archivio originale' : 'Ricette personali'}</span>
                     </button>
@@ -1045,12 +1151,11 @@ export default function PlannerPage() {
                         <strong>Pasto {index + 1}</strong>
                         <PlannerRecipeNutritionHover
                           title={title}
-                          source={plan.recipeSource ?? 'personal'}
-                          personalRecipeId={plan.recipeSource === 'personal' ? plan.recipeId : undefined}
-                          personalRecipeServings={plan.recipeSource === 'personal' ? plan.servings : undefined}
-                          originalRecipeId={plan.recipeSource === 'original' ? plan.recipeId : undefined}
-                          originalDetail={originalDetail}
-                          originalLookup={plan.recipeSource === 'original' ? originalLookup : undefined}
+                          badges={
+                            plan.recipeSource === 'personal'
+                              ? personalPlannerNutritionBadgesById.get(plan.recipeId) ?? []
+                              : buildOriginalPlannerNutritionHoverBadges(originalDetail)
+                          }
                         />
                         {plan.recipeSource === 'original' ? <span>Archivio originale</span> : null}
                         <div className="inline-actions mini-plan-actions">
