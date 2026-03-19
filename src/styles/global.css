@@ -786,6 +786,91 @@ label > span {
   font-size: 1.1rem;
 }
 
+@media (max-width: 719px) {
+  .panel,
+  .empty-state,
+  .loading-card,
+  .pwa-card {
+    padding: 1rem;
+  }
+
+  .list-card,
+  .week-day-card,
+  .stat-card {
+    padding: 0.9rem;
+  }
+
+  .card-header,
+  .section-heading {
+    gap: 0.75rem;
+  }
+
+  .card-header {
+    align-items: stretch;
+  }
+
+  .card-header .inline-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .badge-row {
+    gap: 0.5rem;
+  }
+
+  .badge,
+  .archive-info-button,
+  .modal-close-button {
+    min-height: 36px;
+  }
+
+  .ingredient-line {
+    display: grid;
+    gap: 0.2rem;
+    justify-content: start;
+  }
+
+  .ingredient-line span:last-child {
+    text-align: left;
+  }
+
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: end;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: 94vh;
+    padding: 1rem;
+    border-radius: 1.1rem 1.1rem 0 0;
+  }
+
+  .modal-card .card-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: -1rem -1rem 0;
+    padding: 1rem 1rem 0.85rem;
+    background: var(--surface-strong);
+    border-bottom: 1px solid rgba(72, 87, 60, 0.08);
+  }
+
+  .modal-card .card-header .inline-actions,
+  .modal-card .card-header > .button,
+  .modal-card .card-header > button {
+    justify-self: end;
+  }
+
+  .modal-card .info-box {
+    padding: 0.85rem 0.9rem;
+  }
+
+  .modal-card .section-heading {
+    align-items: start;
+  }
+}
+
 @media (min-width: 720px) {
   .app-topbar {
     flex-direction: row;
