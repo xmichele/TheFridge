@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { useToast } from '@/app/ToastProvider';
-import { mealPlanRepository, recipeRepository } from '@/data/repositories';
+import { mealPlanRepository, recipeRepository, settingsRepository } from '@/data/repositories';
 import {
   loadOriginalRecipeSupportDetailByLookup,
   loadOriginalRecipeSupportLookup,
@@ -19,14 +19,35 @@ import {
   type MealPlanInput,
 } from '@/data/services/plannerService';
 import { MEAL_SLOT_OPTIONS, type MealPlan, type MealPlanSource } from '@/domain/models';
-import { formatDayLabel, MEAL_SLOT_LABELS } from '@/domain/display';
+import { formatDayLabel } from '@/domain/display';
 import { normalizeIngredientName } from '@/domain/normalization';
+import { analyzeRecipeNutrition } from '@/domain/nutrition';
+import {
+  DEFAULT_PLANNER_DAILY_NUTRITION_BUDGET,
+  evaluatePlannerDayBudget,
+  PLANNER_DAILY_NUTRITION_BUDGET_SETTING_KEY,
+  type PlannerBudgetLevel,
+  type PlannerDailyNutritionBudget,
+} from '@/domain/plannerNutritionBudget';
+import {
+  getPlannerDayConstraintError,
+  getPlannerDishGroupFromCategory,
+  type PlannerDishGroup,
+} from '@/domain/plannerConstraints';
+import { buildOriginalRecipeSupportMetadata, buildVisibleNutritionMetricBadges } from '@/domain/support';
 import { mealPlanInputSchema } from '@/validation/schemas';
 import { formatUnitLabel } from '@/domain/units';
 import type {
   OriginalRecipeSupportDetailEntry,
 } from '@/domain/support';
 import type { OriginalRecipeSupportLookupDataset } from '@/data/services/originalRecipeSupportService';
+
+interface PlannerPlanDescriptor {
+  id?: string;
+  date: string;
+  recipeId: string;
+  recipeSource: MealPlanSource;
+}
 
 interface PlannerIngredientUsageLine {
   recipeTitle: string;
@@ -42,6 +63,21 @@ interface PlannerIngredientAggregate {
 
 interface PlannerIngredientBadgeProps {
   ingredient: PlannerIngredientAggregate;
+}
+
+interface PlannerRecipeNutritionHoverProps {
+  title: string;
+  source: MealPlanSource;
+  personalRecipeId?: string;
+  originalRecipeId?: string;
+  personalRecipeServings?: number;
+  originalDetail?: OriginalRecipeSupportDetailEntry | null;
+  originalLookup?: OriginalRecipeSupportLookupDataset | null;
+}
+
+interface PlannerNutritionHoverBadge {
+  text: string;
+  tone: 'neutral' | 'warn' | 'danger' | 'success';
 }
 
 function PlannerIngredientBadge({ ingredient }: PlannerIngredientBadgeProps) {
@@ -78,6 +114,90 @@ function PlannerIngredientBadge({ ingredient }: PlannerIngredientBadgeProps) {
   );
 }
 
+function PlannerRecipeNutritionHover({
+  title,
+  source,
+  personalRecipeId,
+  originalRecipeId,
+  personalRecipeServings,
+  originalDetail,
+  originalLookup,
+}: PlannerRecipeNutritionHoverProps) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
+  const data = useLiveQuery(async () => {
+    if (source === 'personal') {
+      if (!personalRecipeId) {
+        return null;
+      }
+
+      const recipe = await recipeRepository.get(personalRecipeId);
+      if (!recipe) {
+        return null;
+      }
+
+      const nutrition = analyzeRecipeNutrition(recipe, personalRecipeServings ?? recipe.servings);
+      const badges: PlannerNutritionHoverBadge[] = [
+        { text: `Kcal ${nutrition.qualitativeLabels.calories.label}`, tone: nutrition.qualitativeLabels.calories.tone },
+        { text: `Carbo ${nutrition.qualitativeLabels.carbs.label}`, tone: nutrition.qualitativeLabels.carbs.tone },
+        { text: `Prot ${nutrition.qualitativeLabels.protein.label}`, tone: nutrition.qualitativeLabels.protein.tone },
+        { text: `Grassi ${nutrition.qualitativeLabels.fat.label}`, tone: nutrition.qualitativeLabels.fat.tone },
+      ];
+
+      return badges.filter((badge) => !badge.text.endsWith(' medio'));
+    }
+
+    let resolvedOriginalDetail = originalDetail ?? null;
+    if (!resolvedOriginalDetail && originalRecipeId && originalLookup) {
+      const lookupEntry = originalLookup.entries.find((entry) => entry.id === originalRecipeId);
+      if (lookupEntry) {
+        resolvedOriginalDetail = await loadOriginalRecipeSupportDetailByLookup(lookupEntry).catch(() => null);
+      }
+    }
+
+    const metadata = resolvedOriginalDetail ? buildOriginalRecipeSupportMetadata(resolvedOriginalDetail) : null;
+    const badges = buildVisibleNutritionMetricBadges(metadata?.nutritionSignals ?? null).map((badge) => ({
+      text: `${badge.metricLabel} ${badge.qualitativeLabel.label}`,
+      tone: badge.qualitativeLabel.tone,
+    }));
+
+    return badges;
+  }, [source, personalRecipeId, personalRecipeServings, originalDetail, originalRecipeId, originalLookup], null);
+
+  const badges = data ?? [];
+  const hasDetail = badges.length > 0;
+
+  return (
+    <span
+      className={`badge-detail ${hasDetail ? 'has-detail' : ''}`}
+      onMouseEnter={() => hasDetail && setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="planner-recipe-trigger"
+        aria-describedby={hasDetail && open ? detailId : undefined}
+        aria-expanded={hasDetail ? open : undefined}
+        onClick={() => hasDetail && setOpen((current) => !current)}
+      >
+        {title}
+      </button>
+      {hasDetail && open ? (
+        <span id={detailId} role="tooltip" className="badge-detail-popover planner-recipe-popover">
+          <span className="badge-detail-title">{title}</span>
+          <span className="badge-row">
+            {badges.map((badge) => (
+              <StatusBadge key={`${title}-${badge.text}`} tone={badge.tone}>
+                {badge.text}
+              </StatusBadge>
+            ))}
+          </span>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function formatScaledQuantity(quantity: number, unitLabel: string) {
   const rounded = quantity >= 10 ? Math.round(quantity * 10) / 10 : Math.round(quantity * 100) / 100;
   return `${rounded} ${unitLabel}`;
@@ -103,11 +223,20 @@ function emptyPlannerForm(): PlannerFormState {
   };
 }
 
+function isPlannerBudgetLevel(value: unknown): value is PlannerBudgetLevel {
+  return value === 'low' || value === 'medium' || value === 'high';
+}
+
 export default function PlannerPage() {
   const data = useLiveQuery(async () => {
     const [recipes, mealPlans] = await Promise.all([recipeRepository.list(), mealPlanRepository.list()]);
     return { recipes, mealPlans };
   }, []);
+  const budgetSetting = useLiveQuery(
+    () => settingsRepository.get(PLANNER_DAILY_NUTRITION_BUDGET_SETTING_KEY),
+    [],
+    undefined,
+  );
   const recipeCatalog = data?.recipes ?? [];
   const [originalLookup, setOriginalLookup] = useState<OriginalRecipeSupportLookupDataset | null>(null);
   const [originalPlanDetails, setOriginalPlanDetails] = useState<Record<string, OriginalRecipeSupportDetailEntry>>({});
@@ -121,6 +250,21 @@ export default function PlannerPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const { showToast } = useToast();
   const deferredRecipeTitle = useDeferredValue(formState.recipeTitle);
+  const plannerDailyNutritionBudget = useMemo<PlannerDailyNutritionBudget>(() => {
+    const storedValue = budgetSetting?.value;
+    if (!storedValue || typeof storedValue !== 'object') {
+      return DEFAULT_PLANNER_DAILY_NUTRITION_BUDGET;
+    }
+
+    const value = storedValue as Partial<Record<keyof PlannerDailyNutritionBudget, unknown>>;
+
+    return {
+      calories: isPlannerBudgetLevel(value.calories) ? value.calories : 'medium',
+      protein: isPlannerBudgetLevel(value.protein) ? value.protein : 'medium',
+      fat: isPlannerBudgetLevel(value.fat) ? value.fat : 'medium',
+      carbs: isPlannerBudgetLevel(value.carbs) ? value.carbs : 'medium',
+    };
+  }, [budgetSetting]);
 
   function ensureOriginalLookupLoaded() {
     if (originalLookup) {
@@ -389,6 +533,36 @@ export default function PlannerPage() {
     return Array.from(aggregateMap.values()).sort((left, right) => left.displayName.localeCompare(right.displayName, 'it'));
   }, [originalPlanDetails, recipeCatalog, selectedWeekPlans]);
 
+  const plannerBudgetByDay = useMemo(
+    () =>
+      Object.fromEntries(
+        weekDays.map((day) => {
+          const plansForDay = (data?.mealPlans ?? []).filter((plan) => plan.date === day);
+          const nutritionSnapshots = plansForDay.flatMap((plan) => {
+            if (plan.recipeSource === 'personal') {
+              const recipe = recipeCatalog.find((item) => item.id === plan.recipeId);
+              if (!recipe) {
+                return [];
+              }
+
+              return [{ qualitativeLabels: analyzeRecipeNutrition(recipe, plan.servings).qualitativeLabels }];
+            }
+
+            const detail = originalPlanDetails[plan.recipeId];
+            const nutritionSignals = detail ? buildOriginalRecipeSupportMetadata(detail).nutritionSignals : null;
+            if (!nutritionSignals) {
+              return [];
+            }
+
+            return [{ qualitativeLabels: nutritionSignals.qualitativeLabels }];
+          });
+
+          return [day, evaluatePlannerDayBudget(nutritionSnapshots, plannerDailyNutritionBudget)] as const;
+        }),
+      ),
+    [data?.mealPlans, originalPlanDetails, plannerDailyNutritionBudget, recipeCatalog, weekDays],
+  );
+
   if (data === undefined) {
     return <div className="loading-card">Caricamento planner...</div>;
   }
@@ -430,12 +604,81 @@ export default function PlannerPage() {
     setIsRecipeInputFocused(false);
   }
 
+  async function getOriginalDetailForRecipeId(recipeId: string): Promise<OriginalRecipeSupportDetailEntry | null> {
+    if (originalPlanDetails[recipeId]) {
+      return originalPlanDetails[recipeId];
+    }
+
+    const lookup = originalLookup ?? (await loadOriginalRecipeSupportLookup().catch(() => null));
+    if (!lookup) {
+      return null;
+    }
+
+    if (!originalLookup) {
+      setOriginalLookup(lookup);
+    }
+
+    const lookupEntry = lookup.entries.find((entry) => entry.id === recipeId);
+    if (!lookupEntry) {
+      return null;
+    }
+
+    try {
+      const detail = await loadOriginalRecipeSupportDetailByLookup(lookupEntry);
+      setOriginalPlanDetails((current) => (current[recipeId] ? current : { ...current, [recipeId]: detail }));
+      return detail;
+    } catch {
+      return null;
+    }
+  }
+
+  async function resolvePlannerDishGroup(plan: PlannerPlanDescriptor): Promise<PlannerDishGroup> {
+    if (plan.recipeSource === 'personal') {
+      const recipe = recipeCatalog.find((item) => item.id === plan.recipeId);
+      return getPlannerDishGroupFromCategory(recipe?.category);
+    }
+
+    const detail = await getOriginalDetailForRecipeId(plan.recipeId);
+    return getPlannerDishGroupFromCategory(detail?.category);
+  }
+
+  async function validatePlannerDayConstraints(candidate: PlannerPlanDescriptor): Promise<string | null> {
+    if (!data) {
+      return null;
+    }
+
+    const sameDayPlans = data.mealPlans.filter((plan) => plan.date === candidate.date && plan.id !== candidate.id);
+    const entries = await Promise.all(
+      [...sameDayPlans, candidate].map(async (plan) => ({
+        dishGroup: await resolvePlannerDishGroup({
+          id: 'id' in plan ? plan.id : undefined,
+          date: plan.date,
+          recipeId: plan.recipeId,
+          recipeSource: plan.recipeSource ?? 'personal',
+        }),
+      })),
+    );
+
+    return getPlannerDayConstraintError(entries);
+  }
+
   async function handleQuickAddSuggestion(recipe: {
     id: string;
     title: string;
     servings: number;
     source: MealPlanSource;
   }) {
+    const dayConstraintError = await validatePlannerDayConstraints({
+      date: formState.date,
+      recipeId: recipe.id,
+      recipeSource: recipe.source,
+    });
+    if (dayConstraintError) {
+      setErrorMessage(dayConstraintError);
+      showToast({ tone: 'error', title: 'Limite giornaliero raggiunto', description: dayConstraintError });
+      return;
+    }
+
     await createMealPlan({
       date: formState.date,
       slot: formState.slot,
@@ -482,6 +725,16 @@ export default function PlannerPage() {
     }
 
     const payload = parsed.data as MealPlanInput;
+    const dayConstraintError = await validatePlannerDayConstraints({
+      id: editingId ?? undefined,
+      date: payload.date,
+      recipeId: payload.recipeId,
+      recipeSource: payload.recipeSource ?? 'personal',
+    });
+    if (dayConstraintError) {
+      setErrorMessage(dayConstraintError);
+      return;
+    }
 
     if (editingId) {
       await updateMealPlan(editingId, payload);
@@ -521,6 +774,17 @@ export default function PlannerPage() {
     if (editingId === id) {
       resetPlannerForm(firstRecipe?.id, firstRecipe?.title, firstRecipe?.servings);
     }
+  }
+
+  async function handleBudgetChange(metric: keyof PlannerDailyNutritionBudget, level: PlannerBudgetLevel) {
+    await settingsRepository.put({
+      key: PLANNER_DAILY_NUTRITION_BUDGET_SETTING_KEY,
+      value: {
+        ...plannerDailyNutritionBudget,
+        [metric]: level,
+      },
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   return (
@@ -573,35 +837,6 @@ export default function PlannerPage() {
                 onChange={(event) => setFormState((current) => ({ ...current, date: event.target.value }))}
               />
             </label>
-            <label>
-              <span>Slot</span>
-              <select
-                value={formState.slot}
-                onChange={(event) =>
-                  setFormState((current) => ({
-                    ...current,
-                    slot: event.target.value as PlannerFormState['slot'],
-                  }))
-                }
-              >
-                {MEAL_SLOT_OPTIONS.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {MEAL_SLOT_LABELS[slot]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Porzioni</span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                inputMode="numeric"
-                value={formState.servings}
-                onChange={(event) => setFormState((current) => ({ ...current, servings: event.target.value }))}
-              />
-            </label>
           </div>
           <datalist id="planner-recipe-titles">
             {data.recipes
@@ -612,7 +847,7 @@ export default function PlannerPage() {
               ))}
           </datalist>
           <p className="field-hint">
-            Dopo il terzo carattere, quando ti fermi un attimo, cerco anche nel ricettario storico. Le ricette originali si possono pianificare, ma non consumare direttamente.
+            Dopo il terzo carattere, quando ti fermi un attimo, cerco anche nel ricettario storico. Le ricette originali si possono pianificare, ma non consumare direttamente. I pasti del giorno vengono mostrati in semplice sequenza.
           </p>
           {isRecipeInputFocused || formState.recipeTitle.trim() ? (
             <div className="picker-list picker-list-stacked" aria-label="Suggerimenti ricette">
@@ -625,7 +860,15 @@ export default function PlannerPage() {
                       type="button"
                       onClick={() => applyRecipeSelection(recipe.id, recipe.title, recipe.servings, recipe.source)}
                     >
-                      {recipe.title}
+                      <PlannerRecipeNutritionHover
+                        title={recipe.title}
+                        source={recipe.source}
+                        personalRecipeId={recipe.source === 'personal' ? recipe.id : undefined}
+                        personalRecipeServings={recipe.source === 'personal' ? recipe.servings : undefined}
+                        originalRecipeId={recipe.source === 'original' ? recipe.id : undefined}
+                        originalDetail={recipe.source === 'original' ? originalPlanDetails[recipe.id] ?? null : undefined}
+                        originalLookup={recipe.source === 'original' ? originalLookup : undefined}
+                      />
                       <span className="picker-chip-meta">{recipe.source === 'original' ? 'Archivio originale' : 'Ricette personali'}</span>
                     </button>
                     <button
@@ -669,7 +912,54 @@ export default function PlannerPage() {
               onChange={(event) => setSelectedWeekStart(event.target.value)}
             />
           </label>
+          <label>
+            <span>Budget energia + carbo / giorno</span>
+            <select
+              value={plannerDailyNutritionBudget.calories}
+              onChange={async (event) => {
+                const level = event.target.value as PlannerBudgetLevel;
+                await settingsRepository.put({
+                  key: PLANNER_DAILY_NUTRITION_BUDGET_SETTING_KEY,
+                  value: {
+                    ...plannerDailyNutritionBudget,
+                    calories: level,
+                    carbs: level,
+                  },
+                  updatedAt: new Date().toISOString(),
+                });
+              }}
+            >
+              <option value="low">Basso</option>
+              <option value="medium">Medio</option>
+              <option value="high">Alto</option>
+            </select>
+          </label>
+          <label>
+            <span>Budget proteine / giorno</span>
+            <select
+              value={plannerDailyNutritionBudget.protein}
+              onChange={(event) => void handleBudgetChange('protein', event.target.value as PlannerBudgetLevel)}
+            >
+              <option value="low">Basso</option>
+              <option value="medium">Medio</option>
+              <option value="high">Alto</option>
+            </select>
+          </label>
+          <label>
+            <span>Budget grassi / giorno</span>
+            <select
+              value={plannerDailyNutritionBudget.fat}
+              onChange={(event) => void handleBudgetChange('fat', event.target.value as PlannerBudgetLevel)}
+            >
+              <option value="low">Basso</option>
+              <option value="medium">Medio</option>
+              <option value="high">Alto</option>
+            </select>
+          </label>
         </div>
+        <p className="field-hint">
+          Il planner confronta il profilo nutrizionale del giorno con il budget scelto e porta in rosso solo gli scostamenti davvero rilevanti.
+        </p>
       </section>
 
       <section className="panel">
@@ -703,39 +993,83 @@ export default function PlannerPage() {
         </div>
         <div className="week-grid">
           {weekDays.map((day) => {
-            const plansForDay = data.mealPlans.filter((plan) => plan.date === day);
+            const plansForDay = data.mealPlans
+              .filter((plan) => plan.date === day)
+              .slice()
+              .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+            const dayBudgetStatus = plannerBudgetByDay[day];
+            const energyWarnings = [dayBudgetStatus.calories, dayBudgetStatus.carbs].filter((status) => status.tone === 'danger');
+            const groupedBudgetWarnings = [
+              ...(energyWarnings.length > 0
+                ? [
+                    {
+                      key: 'energy',
+                      tone: 'danger' as const,
+                      text:
+                        energyWarnings.length === 2
+                          ? `Energia: ${energyWarnings.map((status) => status.text.replace(/^(Kcal|Carbo):\s*/i, '')).join(' • ')}`
+                          : `Energia: ${energyWarnings[0].text}`,
+                    },
+                  ]
+                : []),
+              ...(dayBudgetStatus.protein.tone === 'danger'
+                ? [{ key: 'protein', tone: 'danger' as const, text: dayBudgetStatus.protein.text }]
+                : []),
+              ...(dayBudgetStatus.fat.tone === 'danger'
+                ? [{ key: 'fat', tone: 'danger' as const, text: dayBudgetStatus.fat.text }]
+                : []),
+            ];
             return (
               <article key={day} className="week-day-card">
+                {groupedBudgetWarnings.length > 0 ? (
+                  <div className="badge-row planner-day-alerts">
+                    {groupedBudgetWarnings.map((warning) => (
+                      <StatusBadge key={`${day}-${warning.key}`} tone={warning.tone}>
+                        {warning.text}
+                      </StatusBadge>
+                    ))}
+                  </div>
+                ) : null}
                 <h3>{formatDayLabel(day)}</h3>
                 {plansForDay.length === 0 ? <p>Nessun piano</p> : null}
                 <div className="stack-sm">
-                  {plansForDay.map((plan) => {
+                  {plansForDay.map((plan, index) => {
                     const recipe =
                       plan.recipeSource === 'personal'
                         ? data.recipes.find((item) => item.id === plan.recipeId)
                         : null;
                     const title = plan.recipeTitle ?? recipe?.title ?? 'Ricetta rimossa';
+                    const originalDetail = plan.recipeSource === 'original' ? originalPlanDetails[plan.recipeId] ?? null : undefined;
                     return (
                       <div key={plan.id} className="mini-plan">
-                        <strong>{MEAL_SLOT_LABELS[plan.slot]}</strong>
-                        <span>{title}</span>
-                        <span>
-                          {plan.servings} porzioni
-                          {plan.recipeSource === 'original' ? ' • Archivio originale' : ''}
-                        </span>
-                        <div className="inline-actions">
-                          <button className="button button-secondary" onClick={() => startEdit(plan)}>
-                            Modifica
-                          </button>
+                        <strong>Pasto {index + 1}</strong>
+                        <PlannerRecipeNutritionHover
+                          title={title}
+                          source={plan.recipeSource ?? 'personal'}
+                          personalRecipeId={plan.recipeSource === 'personal' ? plan.recipeId : undefined}
+                          personalRecipeServings={plan.recipeSource === 'personal' ? plan.servings : undefined}
+                          originalRecipeId={plan.recipeSource === 'original' ? plan.recipeId : undefined}
+                          originalDetail={originalDetail}
+                          originalLookup={plan.recipeSource === 'original' ? originalLookup : undefined}
+                        />
+                        {plan.recipeSource === 'original' ? <span>Archivio originale</span> : null}
+                        <div className="inline-actions mini-plan-actions">
                           <button
-                            className="button"
+                            className="button mini-plan-icon-button"
                             disabled={plan.status === 'consumed' || plan.recipeSource === 'original'}
                             onClick={() => handleConsume(plan.id)}
+                            aria-label={plan.recipeSource === 'original' ? 'Da importare prima' : `Segna come consumato ${title}`}
+                            title={plan.recipeSource === 'original' ? 'Da importare prima' : 'Segna come consumato'}
                           >
-                            {plan.recipeSource === 'original' ? 'Da importare prima' : 'Segna come consumato'}
+                            <span aria-hidden="true">{plan.recipeSource === 'original' ? '⟂' : '🍽'}</span>
                           </button>
-                          <button className="button button-danger" onClick={() => handleDelete(plan.id)}>
-                            Elimina
+                          <button
+                            className="button button-danger mini-plan-icon-button"
+                            onClick={() => handleDelete(plan.id)}
+                            aria-label={`Elimina ${title}`}
+                            title="Elimina"
+                          >
+                            <span aria-hidden="true">−</span>
                           </button>
                         </div>
                       </div>
