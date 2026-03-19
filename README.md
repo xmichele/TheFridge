@@ -1,7 +1,7 @@
 ## The Fridge
 
 Installazione locale:
-
+ 
 ```bash
 npm install
 npm run dev
